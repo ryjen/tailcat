@@ -1,0 +1,62 @@
+name: Supply-chain inventory
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install checksum-pinned SBOM generator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sbom-bin"
+          curl --fail --location --silent --show-error --retry 3 \
+            --output "$RUNNER_TEMP/cyclonedx-gomod.tar.gz" \
+            https://github.com/CycloneDX/cyclonedx-gomod/releases/download/v1.12.0/cyclonedx-gomod_1.12.0_linux_amd64.tar.gz
+          echo "004b9f5cc595b797fb5423e2ae4c97bcf0f18c712ed2faee1640b09e5efd6d15  $RUNNER_TEMP/cyclonedx-gomod.tar.gz" | sha256sum --check --status
+          tar -xzf "$RUNNER_TEMP/cyclonedx-gomod.tar.gz" -C "$RUNNER_TEMP/sbom-bin" cyclonedx-gomod
+          echo "$RUNNER_TEMP/sbom-bin" >> "$GITHUB_PATH"
+      - name: Verify source SBOMs match current inputs
+        run: python3 tool/sbom.py check
+
+  vulnerability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install pinned Go vulnerability scanner
+        shell: bash
+        run: |
+          set -euo pipefail
+          GOBIN="$RUNNER_TEMP" go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+      - name: Check every release build configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          tags=$(cat build-tags.txt)
+          for target in linux:amd64 linux:arm64 linux:arm windows:amd64 windows:arm64; do
+            os=${target%%:*}
+            arch=${target##*:}
+            echo "::group::govulncheck $os/$arch"
+            GOOS="$os" GOARCH="$arch" GOARM=7 CGO_ENABLED=0 GOFLAGS="-tags=$tags" \
+              "$RUNNER_TEMP/govulncheck" -scan=symbol ./cmd/tailcat
+            echo "::endgroup::"
+          done
