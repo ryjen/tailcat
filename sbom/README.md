@@ -4,11 +4,12 @@ These are **source-derived Go application SBOMs**, not attestations of released 
 
 ## Provenance
 
-- Audited source revision: `3064e971bf46abc378b1bae9ccad83bcb374838d`. SBOM/documentation-only commits following that revision do not change application Go sources or dependency versions.
-- Go: `1.27.2`. SBOM generator: [cyclonedx-gomod](https://github.com/CycloneDX/cyclonedx-gomod) **v1.12.0**, downloaded as a checksum-verified official release and run outside this module; **no new SBOM tooling dependency was added to `go.mod`**.
+- Dependency upgrade revision: `3064e971bf46abc378b1bae9ccad83bcb374838d`. The SBOM root version is now a **stable digest of tracked Go sources**, `go.mod`, `go.sum`, `build-tags.txt` and `.goreleaser.yaml`, not a Git pseudoversion. `tailcat:source-inputs:sha256` records the full digest, binding every SBOM to those inputs across documentation-only commits.
+- [`tool/sbom.py`](../tool/sbom.py) clones the current committed HEAD into a normal temporary checkout (Git linked worktrees are supported), uses the pinned generator, canonicalizes the root identity, and verifies the exact saved inventory. `python3 tool/sbom.py check` fails if an SBOM is stale. The new [supply-chain workflow](../.github/workflows/supply-chain.yml) runs on PRs and pushes to main.
+- Go: `1.27.2`. SBOM generator: [cyclonedx-gomod](https://github.com/CycloneDX/cyclonedx-gomod) **v1.12.0**, downloaded as a checksum-verified release binary and run outside this module; Linux amd64 archive SHA-256: `004b9f5cc595b797fb5423e2ae4c97bcf0f18c712ed2faee1640b09e5efd6d15`. The workflow verifies this checksum before execution. **No generator dependency was added to `go.mod`**.
 - CycloneDX 1.6 JSON. The generator omits serial numbers and generation timestamps. Component hashes represent Go's module checksum scheme, not a vendor signature.
 - Entry point `./cmd/tailcat`; `CGO_ENABLED=0`, release build tags in `build-tags.txt`, and matching `GOOS`/`GOARCH`/`GOARM` from `.goreleaser.yaml`.
-- All listed dependency components have detected license **evidence**. This is not a legal approval of each license.
+- All third-party components have automatically detected license **evidence**. The `std@go1.27.2` component is added by `-std`; its BSD-3-Clause evidence is assigned explicitly by the normalization script after comparison with the [Go 1.27.2 source LICENSE](https://go.googlesource.com/go/+/refs/tags/go1.27.2/LICENSE). This is not a legal approval of each license.
 
 The source inputs for these snapshots have SHA-256 hashes:
 
@@ -20,11 +21,13 @@ The source inputs for these snapshots have SHA-256 hashes:
 
 | SBOM file | Target | Dependency components |
 | --- | --- | ---: |
-| `tailcat-linux-amd64.cdx.json` | linux/amd64 | 38 |
-| `tailcat-linux-arm64.cdx.json` | linux/arm64 | 38 |
-| `tailcat-linux-arm.cdx.json` | linux/arm/v7 | 38 |
-| `tailcat-windows-amd64.cdx.json` | windows/amd64 | 35 |
-| `tailcat-windows-arm64.cdx.json` | windows/arm64 | 35 |
+| `tailcat-linux-amd64.cdx.json` | linux/amd64 | 39 |
+| `tailcat-linux-arm64.cdx.json` | linux/arm64 | 39 |
+| `tailcat-linux-arm.cdx.json` | linux/arm/v7 | 39 |
+| `tailcat-windows-amd64.cdx.json` | windows/amd64 | 36 |
+| `tailcat-windows-arm64.cdx.json` | windows/arm64 | 36 |
+
+These totals include the Go standard library as a component. They therefore exceed the previously counted third-party Go modules by one.
 
 ## Dependency review
 
@@ -45,26 +48,24 @@ The WireGuard-Go range contains two changes: replay-filter drop accounting and s
 ## Security evidence and limitations
 
 - `go mod verify` passed for both old and new module sets.
-- `govulncheck v1.9.0` (Go vulnerability database last updated **2026-10-08**) found **no identified reachable symbol-level vulnerability** in the checked Tailcat application. One **module-level finding**, [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932), concerns the unmaintained `golang.org/x/crypto/openpgp` package. `golang.org/x/crypto` is unchanged at `v0.57.0`, and the OpenPGP package is not imported by the checked application. This is pre-existing risk, not introduced by the upgrade.
+- On **2026-10-19**, `govulncheck v1.9.0` at **symbol** level found **no reachable vulnerability** in any of the five release target configurations (Linux amd64, arm64, arm/v7; Windows amd64, arm64), with `CGO_ENABLED=0` and all release tags. These are source-based reachability results, not binary vulnerability attestations. The Go vulnerability database recorded by the previous scan was last modified **2026-10-08**.
+- A separate **module-level** finding, [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932), concerns the unmaintained `golang.org/x/crypto/openpgp` package. `golang.org/x/crypto` is unchanged at `v0.57.0`; that OpenPGP package is not imported by the checked application. Keep it tracked as pre-existing dependency hygiene risk.
 - A separate [550-session close regression](https://github.com/ryjen/tailcat/pull/2) reproduces the old shutdown hang and passes using the updated dependency.
 - The BOMs describe selected Go source dependencies for the specified build settings. They **exclude OS packages, Docker image contents, build tool dependencies, and verification of exact final release binary contents**. Generated license matches need human review.
-- **Nix qualification, cross-platform compilation and GitHub Actions remain unverified.** Publish separate binary-derived SBOMs alongside final release artifacts, and scan released container images independently.
+- **Nix qualification, actual cross-platform binary builds and GitHub Actions remain unverified.** A source SBOM freshness and vulnerability gate was added but has not yet run in hosted CI; the five-target vulnerability scans passed locally. Publish separate binary-derived SBOMs alongside final release artifacts, and scan released container images independently. The release workflow currently does **not** attach SBOMs to binary/package/container artifacts.
 
-## Regeneration
+## Regeneration and CI verification
 
-Install the **separately pinned** `cyclonedx-gomod v1.12.0` tool (outside this module). From a normal Git checkout of the **reviewed source commit**, with Go 1.27.2:
+Install the separately pinned `cyclonedx-gomod v1.12.0` tool on `PATH` and use Go 1.27.2. For Linux amd64, verify the published release archive against SHA-256
+`004b9f5cc595b797fb5423e2ae4c97bcf0f18c712ed2faee1640b09e5efd6d15` before unpacking. The repository introduces no runtime module to produce SBOMs.
 
 ```sh
-export CGO_ENABLED=0
-export GOFLAGS="-tags=$(cat build-tags.txt)"
-for target in linux/amd64 linux/arm64 linux/arm windows/amd64 windows/arm64; do
-    os=${target%/*}
-    arch=${target#*/}
-    export GOOS="$os" GOARCH="$arch" GOARM=7
-    cyclonedx-gomod app -main cmd/tailcat -json -licenses \
-        -noserial -notimestamp \
-        -output "sbom/tailcat-$os-$arch.cdx.json" .
-done
+python3 tool/sbom.py generate   # updates five source SBOMs
+python3 tool/sbom.py check      # fails when inventory or source digest drifts
 ```
 
-The root application's Git pseudoversion is based on the checkout revision. Regenerate for subsequent dependency/source changes and compare component inventories. These source SBOMs do **not** replace release binary SBOMs.
+Both commands work from a normal checkout or an existing Git worktree by using a disposable local checkout at HEAD, and clean up afterward. The source digest includes tracked Go sources, module manifest/lock, build tags and GoReleaser config but **excludes SBOMs themselves**, avoiding self-referential hashes. Changed Go sources require SBOM regeneration even if their dependencies are unchanged. The CI workflow checks this digest and scans vulnerabilities on the **five release-target configurations**.
+
+## Release qualification follow-up
+
+Source-derived SBOMs are a PR review and drift-detection artifact, **not a substitute for shipping exact binary-derived SBOMs**, OCI image SBOMs, or SLSA provenance. The release workflow must publish and associate final binary/package/image inventories with artifact digests before treating supply-chain release qualification as complete. Do not silently treat this source-only workflow as proof that shipped artifacts were scanned.
