@@ -5,7 +5,7 @@ These are **source-derived Go application SBOMs**, not attestations of released 
 ## Provenance
 
 - Dependency upgrade revision: `3064e971bf46abc378b1bae9ccad83bcb374838d`. The SBOM root version is now a **stable digest of tracked Go sources**, `go.mod`, `go.sum`, `build-tags.txt` and `.goreleaser.yaml`, not a Git pseudoversion. `tailcat:source-inputs:sha256` records the full digest, binding every SBOM to those inputs across documentation-only commits.
-- [`tool/sbom.py`](../tool/sbom.py) clones the current committed HEAD into a normal temporary checkout (Git linked worktrees are supported), uses the pinned generator, canonicalizes the root identity, and verifies the exact saved inventory. `python3 tool/sbom.py check` fails if an SBOM is stale. The new [supply-chain workflow](../.github/workflows/supply-chain.yml) runs on PRs and pushes to main.
+- [`tool/sbom/sbom.go`](../tool/sbom/sbom.go) clones the current committed HEAD into a normal temporary checkout (Git linked worktrees are supported), uses the pinned generator, canonicalizes the root identity, and verifies the exact saved inventory. `go run ./tool/sbom check` fails if an SBOM is stale. The [supply-chain workflow](../.github/workflows/supply-chain.yml) runs on PRs and pushes to main.
 - Go: `1.27.2`. SBOM generator: [cyclonedx-gomod](https://github.com/CycloneDX/cyclonedx-gomod) **v1.12.0**, downloaded as a checksum-verified release binary and run outside this module; Linux amd64 archive SHA-256: `004b9f5cc595b797fb5423e2ae4c97bcf0f18c712ed2faee1640b09e5efd6d15`. The workflow verifies this checksum before execution. **No generator dependency was added to `go.mod`**.
 - CycloneDX 1.6 JSON. The generator omits serial numbers and generation timestamps. Component hashes represent Go's module checksum scheme, not a vendor signature.
 - Entry point `./cmd/tailcat`; `CGO_ENABLED=0`, release build tags in `build-tags.txt`, and matching `GOOS`/`GOARCH`/`GOARM` from `.goreleaser.yaml`.
@@ -52,19 +52,19 @@ The WireGuard-Go range contains two changes: replay-filter drop accounting and s
 - A separate **module-level** finding, [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932), concerns the unmaintained `golang.org/x/crypto/openpgp` package. `golang.org/x/crypto` is unchanged at `v0.57.0`; that OpenPGP package is not imported by the checked application. Keep it tracked as pre-existing dependency hygiene risk.
 - A separate [550-session close regression](https://github.com/ryjen/tailcat/pull/2) reproduces the old shutdown hang and passes using the updated dependency.
 - The BOMs describe selected Go source dependencies for the specified build settings. They **exclude OS packages, Docker image contents, build tool dependencies, and verification of exact final release binary contents**. Generated license matches need human review.
-- **Nix qualification, actual cross-platform binary builds and GitHub Actions remain unverified.** A source SBOM freshness and vulnerability gate was added but has not yet run in hosted CI; the five-target vulnerability scans passed locally. Publish separate binary-derived SBOMs alongside final release artifacts, and scan released container images independently. The release workflow currently does **not** attach SBOMs to binary/package/container artifacts.
+- **Source SBOM, Go test/cross-build, and Nix GitHub Actions workflows passed at dependency PR head 84645457b58f1e3a5b66f48d7ebb0d9a4ca25ecf**, including five-target vulnerability scanning. The Go-tooling migration needs to be requalified at its own final head. Publish separate binary-derived SBOMs alongside final release artifacts, and scan released container images independently. The release workflow currently does **not** attach SBOMs to binary/package/container artifacts.
 
 ## Regeneration and CI verification
 
-Install the separately pinned `cyclonedx-gomod v1.12.0` tool on `PATH` and use Go 1.27.2. For Linux amd64, verify the published release archive against SHA-256
+The SBOM helper is a standard-library-only Go command under `tool/sbom/`, alongside the existing Go tools. Install the separately pinned `cyclonedx-gomod v1.12.0` tool on `PATH` and use Go 1.27.2. For Linux amd64, verify the published release archive against SHA-256
 `004b9f5cc595b797fb5423e2ae4c97bcf0f18c712ed2faee1640b09e5efd6d15` before unpacking. The repository introduces no runtime module to produce SBOMs.
 
 ```sh
-python3 tool/sbom.py generate   # updates five source SBOMs
-python3 tool/sbom.py check      # fails when inventory or source digest drifts
+go run ./tool/sbom generate   # updates five source SBOMs
+go run ./tool/sbom check      # fails when inventory or source digest drifts
 ```
 
-Both commands work from a normal checkout or an existing Git worktree by using a disposable local checkout at HEAD, and clean up afterward. The source digest includes tracked Go sources, module manifest/lock, build tags and GoReleaser config but **excludes SBOMs themselves**, avoiding self-referential hashes. Changed Go sources require SBOM regeneration even if their dependencies are unchanged. The CI workflow checks this digest and scans vulnerabilities on the **five release-target configurations**.
+Both Go commands work from a normal checkout or an existing Git worktree by using a disposable local checkout at HEAD, and clean up afterward. The source digest includes tracked Go sources, module manifest/lock, build tags and GoReleaser config but **excludes SBOMs themselves**, avoiding self-referential hashes. Changed Go sources require SBOM regeneration even if their dependencies are unchanged. The CI workflow checks this digest and scans vulnerabilities on the **five release-target configurations**.
 
 ## Release qualification follow-up
 

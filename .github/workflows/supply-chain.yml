@@ -32,7 +32,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/cyclonedx-gomod.tar.gz" -C "$RUNNER_TEMP/sbom-bin" cyclonedx-gomod
           echo "$RUNNER_TEMP/sbom-bin" >> "$GITHUB_PATH"
       - name: Verify source SBOMs match current inputs
-        run: python3 tool/sbom.py check
+        run: go run ./tool/sbom check
 
   vulnerability:
     runs-on: ubuntu-latest
