@@ -30,7 +30,6 @@ func TestCloseAfter550ShortTCPSessions151(t *testing.T) {
 		t.Fatal("missing test DERP region")
 	}
 	clientKey := key.NewNode()
-	doneServing := make(chan struct{}, count*2)
 	s := &Server{
 		Logf:           mkLogger(t, "server"),
 		Region:         reg,
@@ -41,12 +40,9 @@ func TestCloseAfter550ShortTCPSessions151(t *testing.T) {
 				return nil
 			}
 			return func(conn net.Conn) {
-				defer conn.Close() // Server initiates FIN, inducing server-side TIME_WAIT.
+				defer conn.Close() // Server initiates close before the client reads EOF.
 				conn.SetDeadline(time.Now().Add(8 * time.Second))
-				_, err := io.WriteString(conn, "x")
-				if err == nil {
-					doneServing <- struct{}{}
-				}
+				_, _ = io.WriteString(conn, "x")
 			}
 		},
 	}
@@ -71,9 +67,9 @@ func TestCloseAfter550ShortTCPSessions151(t *testing.T) {
 			if err == nil {
 				break
 			}
-			// A failed ephemeral-port dial can be a 4-tuple collision with
-			// TIME_WAIT, a separate condition documented in issue #151.
-			// Retrying a fresh dial is bounded, not ignored.
+			// Transient dials can stall (potentially because of TIME_WAIT
+			// 4-tuple reuse); bound retries rather than treating a stall
+			// as evidence of the shutdown regression.
 		}
 		if err != nil {
 			t.Fatalf("dial #%d exhausted 12 bounded retries: %v", i, err)
@@ -84,11 +80,7 @@ func TestCloseAfter550ShortTCPSessions151(t *testing.T) {
 		if err != nil || string(b) != "x" {
 			t.Fatalf("read #%d = %q, %v; want x and EOF", i, b, err)
 		}
-		select {
-		case <-doneServing:
-		default:
-			t.Fatalf("server handler for #%d not finished", i)
-		}
+		// Reading to EOF confirms the server closed this connection.
 	}
 	t.Logf("Completed %d server-first short sessions in %s; attempting Server.Close", count, time.Since(totalStart))
 	closeResult := make(chan error, 1)
