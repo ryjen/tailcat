@@ -50,6 +50,21 @@ nfpms:
       - rpm
     bindir: /usr/bin
 
+
+# Generate SBOMs from the actual artifacts GoReleaser builds, rather than
+# inferring shipped contents from a source dependency inventory.
+# Syft is pinned and checksum-verified in the release workflow.
+sboms:
+  - id: archive-sbom
+    artifacts: archive
+    args: ["$artifact", "--output", "cyclonedx-json=$document"]
+  - id: package-sbom
+    artifacts: package
+    args: ["$artifact", "--output", "cyclonedx-json=$document"]
+  - id: binary-sbom
+    artifacts: binary
+    args: ["$artifact", "--output", "cyclonedx-json=$document"]
+
 dockers_v2:
   - ids: [tailcat]
     dockerfile: Dockerfile.goreleaser
@@ -61,6 +76,9 @@ dockers_v2:
     platforms:
       - linux/amd64
       - linux/arm64
+    # buildx attaches per-platform SBOM attestations to the image digest.
+    # Image SBOMs cannot be produced by the archive/package Syft step.
+    sbom: true
     labels:
       org.opencontainers.image.title: tailcat
       org.opencontainers.image.source: https://github.com/tailscale/tailcat

@@ -1,0 +1,59 @@
+name: Release SBOM snapshot
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".goreleaser.yaml"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/release-sbom-check.yml"
+      - "RELEASING.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-sbom-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # Same pinned generator and archive checksum as the real release.
+      - name: Install verified Syft v1.54.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --retry 3 \
+            --output "$RUNNER_TEMP/syft.tar.gz" \
+            https://github.com/anchore/syft/releases/download/v1.54.1/syft_1.54.1_linux_amd64.tar.gz
+          echo "c069905b391cc4c20a5ba65ad5c10be2a7ba074f8ea6ad203e24d14e303dad47  $RUNNER_TEMP/syft.tar.gz" | sha256sum --check --status
+          mkdir -p "$RUNNER_TEMP/syft-bin"
+          tar -xzf "$RUNNER_TEMP/syft.tar.gz" -C "$RUNNER_TEMP/syft-bin" syft
+          echo "$RUNNER_TEMP/syft-bin" >> "$GITHUB_PATH"
+      - name: Non-publishing release snapshot with binary, archive and package SBOMs
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: "v2.18.3"
+          args: release --snapshot --skip=docker --clean
+      - name: Validate archive and package inventories
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=0
+          for file in dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm; do
+            test -f "$file" || continue
+            test -s "$file.sbom.json"
+            jq -e '.bomFormat == "CycloneDX" and .specVersion != null and (.components | length > 0)' "$file.sbom.json" > /dev/null
+            count=$((count + 1))
+          done
+          test "$count" -ge 5
+          echo "Verified $count archive/package SBOMs (no release or OCI image was published)"

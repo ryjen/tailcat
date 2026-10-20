@@ -41,12 +41,18 @@ Each release contains:
 * Debian (.deb) and RPM (.rpm) packages for the same architectures
 * Windows binaries (zip) for amd64 and arm64
 * `checksums.txt` with SHA-256 checksums of the above
+* CycloneDX JSON SBOMs produced by Syft from each compiled binary, archive
+  and Debian/RPM package. These are artifact-derived, separate from
+  source-derived dependency inventories used during pull-request review.
 
 Each release also pushes container images (amd64 and arm64) to
 [ghcr.io/tailscale/tailcat](https://github.com/tailscale/tailcat/pkgs/container/tailcat), tagged
 both `vX.Y.Z` and `latest`. The image is the static binary in a
 [distroless](https://github.com/GoogleContainerTools/distroless) base
-image; see `Dockerfile.goreleaser`.
+image; see `Dockerfile.goreleaser`. GoReleaser's `dockers_v2` uses
+buildx to attach SBOM attestations to the pushed multi-platform image.
+For verification, resolve and inspect the image by immutable digest,
+not merely the mutable `latest` tag.
 
 The binary version is embedded at build time via `-ldflags -X
 main.version=...`; `tailcat version` prints it. Builds made with
@@ -67,3 +73,28 @@ the container images are built into the local Docker daemon as
 separate per-platform tags rather than a multi-arch manifest, and
 nothing is pushed. Building them requires a buildx builder with the
 docker-container driver (`docker buildx create --use`).
+
+
+## Artifact SBOM qualification
+
+The release workflow installs Syft **v1.54.1** from a SHA-256-verified
+archive, then GoReleaser **v2.18.3**. Missing or invalid Syft must fail
+the release instead of silently omitting its inventories.
+
+GoReleaser generates SBOMs for archives, standalone compiled binaries, and
+nFPM Debian/RPM packages. Each SBOM is named for the artifact and uploaded
+as a release asset. The `checksums.txt` file binds released artifacts to
+SHA-256 digests; verify the downloaded checksums and the corresponding SBOM
+against the intended release. The checksum file alone is **not** a
+cryptographically signed attestation of who built those artifacts.
+
+The multi-platform OCI image uses buildx's independent SBOM attestation
+(`dockers_v2.sbom: true`); confirm the attestation exists for both
+`linux/amd64` and `linux/arm64` on the **published digest**.
+Archive/package SBOMs do not include the distroless base image.
+
+For a **non-publishing** rehearsal with GoReleaser, use its snapshot or
+skip-publish mode and examine `dist/` SBOMs before pushing any version tag.
+A local rehearsal cannot validate remote GHCR registry permissions,
+image attestation publication, or signed release provenance. Do not
+treat those as complete without a verified staged release.
