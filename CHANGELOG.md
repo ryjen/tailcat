@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Bump tailscale.com to include the netstack shutdown fix from
+  [tailscale/tailscale#21668](https://github.com/tailscale/tailscale/pull/21668).
+  Earlier versions can hang while closing busy TCP netstacks, leaving
+  Tailcat's WireGuard engine and DERP connection running
+  ([#151](https://github.com/tailscale/tailcat/issues/151)).
 - **Breaking Go API change:** `Server.AllowedClients` and
   `Server.AddAllowedClient` are replaced by the `Server.AllowClient`
   hook, a `func(key.NodePublic) bool` asked about each client as it
