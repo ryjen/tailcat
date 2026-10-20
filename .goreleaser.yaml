@@ -87,11 +87,9 @@ dockers_v2:
       org.opencontainers.image.licenses: BSD-3-Clause
 
 checksum:
+  # GoReleaser v2.18.3 already includes uploadable SBOM artifacts here.
+  # Do not add SBOMs again via extra_files (would duplicate hash lines).
   name_template: checksums.txt
-  # GoReleaser defaults to checksumming publishable binaries/archives/packages;
-  # also hash the Syft documents so a consumer can verify both sides.
-  extra_files:
-    - glob: dist/*.sbom.json
 
 release:
   # Create the GitHub Release as a draft so curated release notes can

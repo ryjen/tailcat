@@ -67,8 +67,8 @@ jobs:
             jq -e '.bomFormat == "CycloneDX" and .specVersion != null and (.components | length > 0)' "$file" > /dev/null
           done
 
-          # GoReleaser's normal checksum set does not include SBOMs.
-          # All SBOM filenames must now occur exactly once, and all hash
+          # GoReleaser includes uploadable SBOMs in its checksum set.
+          # Each SBOM filename must occur exactly once, and all hash
           # entries must verify against the generated artifact bytes.
           test -s dist/checksums.txt
           for file in "${inventories[@]}"; do
