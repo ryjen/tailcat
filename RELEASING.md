@@ -107,12 +107,13 @@ The pull-request `Release SBOM snapshot` workflow now builds a separate
 two-platform OCI image layout from GoReleaser's generated Linux binaries
 using the **same release Dockerfile**, with Buildx's `--sbom=true` option.
 The standard-library Go verifier in `tool/ocisbom` examines the exported
-OCI index, both platform manifests, matching attestation manifest
-descriptors, and the SPDX in-toto subjects, which must name either the
-image manifest itself or its configuration/layers. The index and
-attestation manifest descriptors must both point to the exact platform
-manifest digest. This does not publish an image, require GHCR
-credentials, or create a version tag.
+OCI index, both platform manifests, and the SPDX in-toto attestation
+blobs. The index reference and OCI attestation manifest's own subject
+**must both** bind to the exact platform image-manifest digest. BuildKit
+can emit an empty in-toto statement subject array; when the array is
+nonempty, each accepted subject must name the image manifest or an
+object within its configuration/layers. This does not publish an image,
+require GHCR credentials, or create a version tag.
 
 Passing the offline check demonstrates the attestation structure and
 per-platform content **before release**. It does not verify whether

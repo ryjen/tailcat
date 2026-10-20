@@ -197,8 +197,11 @@ func verify(path string) error {
 		if a.ArtifactType != "" && a.ArtifactType != "application/vnd.docker.attestation.manifest.v1+json" {
 			return fmt.Errorf("%s has unrecognized attestation artifact type %s", name, a.ArtifactType)
 		}
-		if a.Subject.Digest != "" && a.Subject.Digest != digest {
-			return fmt.Errorf("%s subject digest differs from image manifest", name)
+		// The OCI attestation manifest must bind to this exact image.
+		// Some BuildKit SPDX statements have an empty subject array;
+		// the manifest-level subject is mandatory in that case.
+		if a.Subject.Digest != digest {
+			return fmt.Errorf("%s attestation manifest subject digest missing or incorrect", name)
 		}
 		// BuildKit attestation statement subjects can refer to the
 		// final manifest or a cryptographically named object within that
@@ -238,7 +241,7 @@ func verify(path string) error {
 					bound = true
 				}
 			}
-			if !bound {
+			if len(stmt.Subject) > 0 && !bound {
 				return fmt.Errorf("%s SPDX statement subjects %v do not match the image manifest/config/layers", name, actualSubjects)
 			}
 			found++

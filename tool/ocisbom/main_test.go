@@ -16,15 +16,19 @@ func TestOfflineAttestationVerification(t *testing.T) {
 		name          string
 		breakSubject  bool
 		configSubject bool
+		emptySubject  bool
+		omitManifest  bool
 		wantFailure   bool
 	}{
-		{"valid two-platform SBOM", false, false, false},
-		{"image config subject", false, true, false},
-		{"forged attestation subject", true, false, true},
+		{"valid two-platform SBOM", false, false, false, false, false},
+		{"image config subject", false, true, false, false, false},
+		{"empty statement subject with bound manifest", false, false, true, false, false},
+		{"forged attestation subject", true, false, false, false, true},
+		{"missing manifest subject", false, false, true, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			archive := filepath.Join(t.TempDir(), "oci.tar")
-			if err := testOCIArchive(archive, tc.breakSubject, tc.configSubject); err != nil {
+			if err := testOCIArchive(archive, tc.breakSubject, tc.configSubject, tc.emptySubject, tc.omitManifest); err != nil {
 				t.Fatal(err)
 			}
 			err := verify(archive)
@@ -35,7 +39,7 @@ func TestOfflineAttestationVerification(t *testing.T) {
 	}
 }
 
-func testOCIArchive(out string, breakSubject, configSubject bool) error {
+func testOCIArchive(out string, breakSubject, configSubject, emptySubject, omitManifest bool) error {
 	blobs := map[string][]byte{}
 	store := func(data any) descriptor {
 		b, err := json.Marshal(data)
@@ -61,17 +65,25 @@ func testOCIArchive(out string, breakSubject, configSubject bool) error {
 		if breakSubject && arch == "arm64" {
 			subject = strings.Repeat("0", 64)
 		}
+		statementSubjects := []any{map[string]any{"name": "_", "digest": map[string]any{"sha256": subject}}}
+		if emptySubject {
+			statementSubjects = []any{}
+		}
 		stmt := store(map[string]any{
 			"_type":         "https://in-toto.io/Statement/v1",
 			"predicateType": "https://spdx.dev/Document",
 			"predicate":     map[string]any{"SPDXID": "SPDXRef-DOCUMENT", "packages": []any{map[string]any{"name": "sample"}}},
-			"subject":       []any{map[string]any{"name": "_", "digest": map[string]any{"sha256": subject}}},
+			"subject":       statementSubjects,
 		})
 		stmt.MediaType = "application/vnd.in-toto+json"
 		stmt.Annotations = map[string]string{"in-toto.io/predicate-type": "https://spdx.dev/Document"}
+		manifestSubject := img
+		if omitManifest && arch == "arm64" {
+			manifestSubject = descriptor{}
+		}
 		att := store(manifest{
 			ArtifactType: "application/vnd.docker.attestation.manifest.v1+json",
-			Subject:      img,
+			Subject:      manifestSubject,
 			Layers:       []descriptor{stmt},
 		})
 		att.Platform.OS, att.Platform.Architecture = "unknown", "unknown"
