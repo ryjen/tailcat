@@ -983,7 +983,7 @@
         "pkg:golang/std@go1.27.2?type=module",
         "pkg:golang/tailscale.com@v1.105.0-pre.0.20261013225543-fb79793d99f5?type=module"
       ],
-      "ref": "pkg:golang/github.com/tailscale/tailcat@v0.0.0-sbom.587897ebb8ea23ef?type=module#cmd/tailcat"
+      "ref": "pkg:golang/github.com/tailscale/tailcat@v0.0.0-sbom.1f38e242a5c0812f?type=module#cmd/tailcat"
     },
     {
       "ref": "pkg:golang/github.com/anmitsu/go-shlex@v0.0.0-20200514113438-38f4b401e2be?type=module"
@@ -1208,7 +1208,7 @@
   ],
   "metadata": {
     "component": {
-      "bom-ref": "pkg:golang/github.com/tailscale/tailcat@v0.0.0-sbom.587897ebb8ea23ef?type=module#cmd/tailcat",
+      "bom-ref": "pkg:golang/github.com/tailscale/tailcat@v0.0.0-sbom.1f38e242a5c0812f?type=module#cmd/tailcat",
       "evidence": {
         "licenses": [
           {
@@ -1548,12 +1548,12 @@
         },
         {
           "name": "tailcat:source-inputs:sha256",
-          "value": "587897ebb8ea23ef4bcd727f9b0dc3a033409d7852515f30e205b8e82dca2cad"
+          "value": "1f38e242a5c0812f0becee76d0e549ec95e166b13b801daac0cdf25fbc6be48b"
         }
       ],
-      "purl": "pkg:golang/github.com/tailscale/tailcat@v0.0.0-sbom.587897ebb8ea23ef?goarch=amd64\u0026goos=windows\u0026type=module#cmd/tailcat",
+      "purl": "pkg:golang/github.com/tailscale/tailcat@v0.0.0-sbom.1f38e242a5c0812f?goarch=amd64\u0026goos=windows\u0026type=module#cmd/tailcat",
       "type": "application",
-      "version": "v0.0.0-sbom.587897ebb8ea23ef"
+      "version": "v0.0.0-sbom.1f38e242a5c0812f"
     },
     "tools": [
       {
