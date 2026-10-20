@@ -18,6 +18,23 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # GoReleaser fails closed when Syft is missing. Verify the pinned
+      # upstream archive before executing it (independent of GitHub tags).
+      - name: Install verified Syft v1.54.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --retry 3 \
+            --output "$RUNNER_TEMP/syft.tar.gz" \
+            https://github.com/anchore/syft/releases/download/v1.54.1/syft_1.54.1_linux_amd64.tar.gz
+          echo "c069905b391cc4c20a5ba65ad5c10be2a7ba074f8ea6ad203e24d14e303dad47  $RUNNER_TEMP/syft.tar.gz" | sha256sum --check --status
+          mkdir -p "$RUNNER_TEMP/syft-bin"
+          tar -xzf "$RUNNER_TEMP/syft.tar.gz" -C "$RUNNER_TEMP/syft-bin" syft
+          echo "$RUNNER_TEMP/syft-bin" >> "$GITHUB_PATH"
+      - name: Verify Syft version
+        run: |
+          syft version
+          test "$(syft version -o json | jq -r .version)" = "1.54.1"
       # GoReleaser's dockers_v2 needs a buildx builder with the
       # docker-container driver to build multi-arch images.
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -28,7 +45,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: "~> v2"
+          version: "v2.18.3"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

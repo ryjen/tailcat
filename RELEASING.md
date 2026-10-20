@@ -40,13 +40,19 @@ Each release contains:
 * Linux static binaries (tar.gz) for amd64, arm64, and armv7
 * Debian (.deb) and RPM (.rpm) packages for the same architectures
 * Windows binaries (zip) for amd64 and arm64
-* `checksums.txt` with SHA-256 checksums of the above
+* `checksums.txt` with SHA-256 checksums of the above **and all generated SBOM files**
+* CycloneDX JSON SBOMs produced by Syft from each compiled binary, archive
+  and Debian/RPM package. These are artifact-derived, separate from
+  source-derived dependency inventories used during pull-request review.
 
 Each release also pushes container images (amd64 and arm64) to
 [ghcr.io/tailscale/tailcat](https://github.com/tailscale/tailcat/pkgs/container/tailcat), tagged
 both `vX.Y.Z` and `latest`. The image is the static binary in a
 [distroless](https://github.com/GoogleContainerTools/distroless) base
-image; see `Dockerfile.goreleaser`.
+image; see `Dockerfile.goreleaser`. GoReleaser's `dockers_v2` uses
+buildx to attach SBOM attestations to the pushed multi-platform image.
+For verification, resolve and inspect the image by immutable digest,
+not merely the mutable `latest` tag.
 
 The binary version is embedded at build time via `-ldflags -X
 main.version=...`; `tailcat version` prints it. Builds made with
@@ -67,3 +73,50 @@ the container images are built into the local Docker daemon as
 separate per-platform tags rather than a multi-arch manifest, and
 nothing is pushed. Building them requires a buildx builder with the
 docker-container driver (`docker buildx create --use`).
+
+
+## Artifact SBOM qualification
+
+The release workflow installs Syft **v1.54.1** from a SHA-256-verified
+archive, then GoReleaser **v2.18.3**. Missing or invalid Syft must fail
+the release instead of silently omitting its inventories.
+
+GoReleaser generates SBOMs for archives, standalone compiled binaries, and
+nFPM Debian/RPM packages. Each SBOM is named for the artifact and uploaded
+as a release asset. The `checksums.txt` file records SHA-256 digests for released artifacts
+and all 16 generated SBOM files. Check each downloaded artifact and its
+matching `.sbom.json` against this manifest, and verify that both belong
+to the intended release. The checksum file alone is **not** a
+cryptographically signed attestation of who built those artifacts.
+
+The multi-platform OCI image uses buildx's independent SBOM attestation
+(`dockers_v2.sbom: true`); confirm the attestation exists for both
+`linux/amd64` and `linux/arm64` on the **published digest**.
+Archive/package SBOMs do not include the distroless base image.
+
+For a **non-publishing** rehearsal with GoReleaser, use its snapshot or
+skip-publish mode and examine `dist/` SBOMs before pushing any version tag.
+A local rehearsal cannot validate remote GHCR registry permissions,
+image attestation publication, or signed release provenance. Do not
+treat those as complete without a verified staged release.
+
+
+### Non-publishing OCI attestation check
+
+The pull-request `Release SBOM snapshot` workflow now builds a separate
+two-platform OCI image layout from GoReleaser's generated Linux binaries
+using the **same release Dockerfile**, with Buildx's `--sbom=true` option.
+The standard-library Go verifier in `tool/ocisbom` examines the exported
+OCI index, both platform manifests, and the SPDX in-toto attestation
+blobs. The index reference and OCI attestation manifest's own subject
+**must both** bind to the exact platform image-manifest digest. BuildKit
+can emit an empty in-toto statement subject array; when the array is
+nonempty, each accepted subject must name the image manifest or an
+object within its configuration/layers. This does not publish an image,
+require GHCR credentials, or create a version tag.
+
+Passing the offline check demonstrates the attestation structure and
+per-platform content **before release**. It does not verify whether
+GoReleaser's actual multiarch publishing path or GHCR preserves those
+attestations. After an authorized release, verify the registry digest and
+each attestation from the published OCI index separately.

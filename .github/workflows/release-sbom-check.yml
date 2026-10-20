@@ -1,0 +1,102 @@
+name: Release SBOM snapshot
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".goreleaser.yaml"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/release-sbom-check.yml"
+      - "RELEASING.md"
+      - "Dockerfile.goreleaser"
+      - "tool/ocisbom/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-sbom-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # Same pinned generator and archive checksum as the real release.
+      - name: Install verified Syft v1.54.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --retry 3 \
+            --output "$RUNNER_TEMP/syft.tar.gz" \
+            https://github.com/anchore/syft/releases/download/v1.54.1/syft_1.54.1_linux_amd64.tar.gz
+          echo "c069905b391cc4c20a5ba65ad5c10be2a7ba074f8ea6ad203e24d14e303dad47  $RUNNER_TEMP/syft.tar.gz" | sha256sum --check --status
+          mkdir -p "$RUNNER_TEMP/syft-bin"
+          tar -xzf "$RUNNER_TEMP/syft.tar.gz" -C "$RUNNER_TEMP/syft-bin" syft
+          echo "$RUNNER_TEMP/syft-bin" >> "$GITHUB_PATH"
+      - name: Non-publishing release snapshot with binary, archive and package SBOMs
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: "v2.18.3"
+          args: release --snapshot --skip=docker --clean
+      # Verify multi-platform image attestations without ever pushing an
+      # image, tag, GitHub Release or GHCR package.
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build and inspect offline OCI image SBOMs
+        shell: bash
+        run: |
+          set -euo pipefail
+          context="$RUNNER_TEMP/tailcat-oci-context"
+          mkdir -p "$context/linux/amd64" "$context/linux/arm64"
+          cp dist/tailcat_linux_amd64_v1/tailcat "$context/linux/amd64/tailcat"
+          cp dist/tailcat_linux_arm64_v8.0/tailcat "$context/linux/arm64/tailcat"
+
+          # Uses the same Dockerfile and platforms as dockers_v2, with
+          # explicit SBOM attestation and no registry destination.
+          docker buildx build --progress=plain \
+            --platform linux/amd64,linux/arm64 \
+            --file Dockerfile.goreleaser \
+            --sbom=true --provenance=false \
+            --output "type=oci,dest=$RUNNER_TEMP/tailcat.oci.tar" \
+            "$context"
+          go run ./tool/ocisbom "$RUNNER_TEMP/tailcat.oci.tar"
+      - name: Validate all artifact inventories and release checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          # Every concrete release archive/package needs its own Syft SBOM.
+          packages=(dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm)
+          test "${#packages[@]}" -eq 11
+          for file in "${packages[@]}"; do
+            test -s "$file"
+            test -s "$file.sbom.json"
+          done
+
+          # GoReleaser also emits standalone executable SBOMs. Reject
+          # missing, empty, malformed or non-CycloneDX documents.
+          inventories=(dist/*.sbom.json)
+          test "${#inventories[@]}" -eq 16
+          for file in "${inventories[@]}"; do
+            test -s "$file"
+            jq -e '.bomFormat == "CycloneDX" and .specVersion != null and (.components | length > 0)' "$file" > /dev/null
+          done
+
+          # GoReleaser includes uploadable SBOMs in its checksum set.
+          # Each SBOM filename must occur exactly once, and all hash
+          # entries must verify against the generated artifact bytes.
+          test -s dist/checksums.txt
+          for file in "${inventories[@]}"; do
+            name=${file##*/}
+            test "$(grep -Fc "  $name" dist/checksums.txt)" -eq 1
+          done
+          (cd dist && sha256sum --check checksums.txt)
+          echo "Verified 11 archives/packages, 5 binary inventories and 16 checksummed CycloneDX SBOMs; no release or OCI image published."
