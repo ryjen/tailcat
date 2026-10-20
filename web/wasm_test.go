@@ -366,7 +366,9 @@ func TestBrowserSends(t *testing.T) {
 	var sendDone bool
 	if err := chromedp.Run(runCtx,
 		chromedp.Navigate(pageURL),
-		chromedp.Poll("window.tcTest.sendDone === true", &sendDone,
+		// The page can be polled before app.js initializes window.tcTest.
+		// Avoid a JavaScript TypeError while preserving the completion check.
+		chromedp.Poll("window.tcTest && window.tcTest.sendDone === true", &sendDone,
 			chromedp.WithPollingTimeout(90*time.Second)),
 	); err != nil {
 		t.Fatalf("chromedp run: %v", err)
