@@ -8,6 +8,8 @@ on:
       - ".github/workflows/release.yml"
       - ".github/workflows/release-sbom-check.yml"
       - "RELEASING.md"
+      - "Dockerfile.goreleaser"
+      - "tool/ocisbom/**"
 
 permissions:
   contents: read
@@ -44,6 +46,27 @@ jobs:
         with:
           version: "v2.18.3"
           args: release --snapshot --skip=docker --clean
+      # Verify multi-platform image attestations without ever pushing an
+      # image, tag, GitHub Release or GHCR package.
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build and inspect offline OCI image SBOMs
+        shell: bash
+        run: |
+          set -euo pipefail
+          context="$RUNNER_TEMP/tailcat-oci-context"
+          mkdir -p "$context/linux/amd64" "$context/linux/arm64"
+          cp dist/tailcat_linux_amd64_v1/tailcat "$context/linux/amd64/tailcat"
+          cp dist/tailcat_linux_arm64_v8.0/tailcat "$context/linux/arm64/tailcat"
+
+          # Uses the same Dockerfile and platforms as dockers_v2, with
+          # explicit SBOM attestation and no registry destination.
+          docker buildx build --progress=plain \
+            --platform linux/amd64,linux/arm64 \
+            --file Dockerfile.goreleaser \
+            --sbom=true --provenance=false \
+            --output "type=oci,dest=$RUNNER_TEMP/tailcat.oci.tar" \
+            "$context"
+          go run ./tool/ocisbom "$RUNNER_TEMP/tailcat.oci.tar"
       - name: Validate all artifact inventories and release checksums
         shell: bash
         run: |

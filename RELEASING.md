@@ -99,3 +99,20 @@ skip-publish mode and examine `dist/` SBOMs before pushing any version tag.
 A local rehearsal cannot validate remote GHCR registry permissions,
 image attestation publication, or signed release provenance. Do not
 treat those as complete without a verified staged release.
+
+
+### Non-publishing OCI attestation check
+
+The pull-request `Release SBOM snapshot` workflow now builds a separate
+two-platform OCI image layout from GoReleaser's generated Linux binaries
+using the **same release Dockerfile**, with Buildx's `--sbom=true` option.
+The standard-library Go verifier in `tool/ocisbom` examines the exported
+OCI index, both platform manifests, matching attestation manifest
+descriptors, and the SPDX in-toto subject digests. This does not
+publish an image, require GHCR credentials, or create a version tag.
+
+Passing the offline check demonstrates the attestation structure and
+per-platform content **before release**. It does not verify whether
+GoReleaser's actual multiarch publishing path or GHCR preserves those
+attestations. After an authorized release, verify the registry digest and
+each attestation from the published OCI index separately.
