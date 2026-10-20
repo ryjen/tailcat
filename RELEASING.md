@@ -40,7 +40,7 @@ Each release contains:
 * Linux static binaries (tar.gz) for amd64, arm64, and armv7
 * Debian (.deb) and RPM (.rpm) packages for the same architectures
 * Windows binaries (zip) for amd64 and arm64
-* `checksums.txt` with SHA-256 checksums of the above
+* `checksums.txt` with SHA-256 checksums of the above **and all generated SBOM files**
 * CycloneDX JSON SBOMs produced by Syft from each compiled binary, archive
   and Debian/RPM package. These are artifact-derived, separate from
   source-derived dependency inventories used during pull-request review.
@@ -83,9 +83,10 @@ the release instead of silently omitting its inventories.
 
 GoReleaser generates SBOMs for archives, standalone compiled binaries, and
 nFPM Debian/RPM packages. Each SBOM is named for the artifact and uploaded
-as a release asset. The `checksums.txt` file binds released artifacts to
-SHA-256 digests; verify the downloaded checksums and the corresponding SBOM
-against the intended release. The checksum file alone is **not** a
+as a release asset. The `checksums.txt` file records SHA-256 digests for released artifacts
+and all 16 generated SBOM files. Check each downloaded artifact and its
+matching `.sbom.json` against this manifest, and verify that both belong
+to the intended release. The checksum file alone is **not** a
 cryptographically signed attestation of who built those artifacts.
 
 The multi-platform OCI image uses buildx's independent SBOM attestation

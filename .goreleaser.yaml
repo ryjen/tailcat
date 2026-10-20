@@ -88,6 +88,10 @@ dockers_v2:
 
 checksum:
   name_template: checksums.txt
+  # GoReleaser defaults to checksumming publishable binaries/archives/packages;
+  # also hash the Syft documents so a consumer can verify both sides.
+  extra_files:
+    - glob: dist/*.sbom.json
 
 release:
   # Create the GitHub Release as a draft so curated release notes can

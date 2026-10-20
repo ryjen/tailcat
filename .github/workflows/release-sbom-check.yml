@@ -44,16 +44,36 @@ jobs:
         with:
           version: "v2.18.3"
           args: release --snapshot --skip=docker --clean
-      - name: Validate archive and package inventories
+      - name: Validate all artifact inventories and release checksums
         shell: bash
         run: |
           set -euo pipefail
-          count=0
-          for file in dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm; do
-            test -f "$file" || continue
+          shopt -s nullglob
+
+          # Every concrete release archive/package needs its own Syft SBOM.
+          packages=(dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm)
+          test "${#packages[@]}" -eq 11
+          for file in "${packages[@]}"; do
+            test -s "$file"
             test -s "$file.sbom.json"
-            jq -e '.bomFormat == "CycloneDX" and .specVersion != null and (.components | length > 0)' "$file.sbom.json" > /dev/null
-            count=$((count + 1))
           done
-          test "$count" -ge 5
-          echo "Verified $count archive/package SBOMs (no release or OCI image was published)"
+
+          # GoReleaser also emits standalone executable SBOMs. Reject
+          # missing, empty, malformed or non-CycloneDX documents.
+          inventories=(dist/*.sbom.json)
+          test "${#inventories[@]}" -eq 16
+          for file in "${inventories[@]}"; do
+            test -s "$file"
+            jq -e '.bomFormat == "CycloneDX" and .specVersion != null and (.components | length > 0)' "$file" > /dev/null
+          done
+
+          # GoReleaser's normal checksum set does not include SBOMs.
+          # All SBOM filenames must now occur exactly once, and all hash
+          # entries must verify against the generated artifact bytes.
+          test -s dist/checksums.txt
+          for file in "${inventories[@]}"; do
+            name=${file##*/}
+            test "$(grep -Fc "  $name" dist/checksums.txt)" -eq 1
+          done
+          (cd dist && sha256sum --check checksums.txt)
+          echo "Verified 11 archives/packages, 5 binary inventories and 16 checksummed CycloneDX SBOMs; no release or OCI image published."
