@@ -13,16 +13,18 @@ import (
 
 func TestOfflineAttestationVerification(t *testing.T) {
 	for _, tc := range []struct {
-		name         string
-		breakSubject bool
-		wantFailure  bool
+		name          string
+		breakSubject  bool
+		configSubject bool
+		wantFailure   bool
 	}{
-		{"valid two-platform SBOM", false, false},
-		{"forged attestation subject", true, true},
+		{"valid two-platform SBOM", false, false, false},
+		{"image config subject", false, true, false},
+		{"forged attestation subject", true, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			archive := filepath.Join(t.TempDir(), "oci.tar")
-			if err := testOCIArchive(archive, tc.breakSubject); err != nil {
+			if err := testOCIArchive(archive, tc.breakSubject, tc.configSubject); err != nil {
 				t.Fatal(err)
 			}
 			err := verify(archive)
@@ -33,7 +35,7 @@ func TestOfflineAttestationVerification(t *testing.T) {
 	}
 }
 
-func testOCIArchive(out string, breakSubject bool) error {
+func testOCIArchive(out string, breakSubject, configSubject bool) error {
 	blobs := map[string][]byte{}
 	store := func(data any) descriptor {
 		b, err := json.Marshal(data)
@@ -48,10 +50,14 @@ func testOCIArchive(out string, breakSubject bool) error {
 	images := []descriptor{}
 	attests := []descriptor{}
 	for _, arch := range []string{"amd64", "arm64"} {
-		img := store(map[string]any{"schemaVersion": 2, "architecture": arch})
+		config := store(map[string]any{"architecture": arch})
+		img := store(manifest{Config: config})
 		img.Platform.OS, img.Platform.Architecture = "linux", arch
 		images = append(images, img)
 		subject := strings.TrimPrefix(img.Digest, "sha256:")
+		if configSubject {
+			subject = strings.TrimPrefix(config.Digest, "sha256:")
+		}
 		if breakSubject && arch == "arm64" {
 			subject = strings.Repeat("0", 64)
 		}

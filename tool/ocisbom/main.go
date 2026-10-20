@@ -37,6 +37,7 @@ type index struct {
 type manifest struct {
 	ArtifactType string       `json:"artifactType"`
 	Subject      descriptor   `json:"subject"`
+	Config       descriptor   `json:"config"`
 	Layers       []descriptor `json:"layers"`
 }
 type statement struct {
@@ -145,6 +146,7 @@ func verify(path string) error {
 		idx = nested
 	}
 	platforms := map[string]string{}
+	imageManifests := map[string]manifest{}
 	attestations := map[string][]descriptor{}
 	for _, d := range idx.Manifests {
 		ref := d.Annotations["vnd.docker.reference.type"]
@@ -174,6 +176,7 @@ func verify(path string) error {
 			return err
 		}
 		platforms[name] = d.Digest
+		imageManifests[name] = img
 	}
 	if len(platforms) != 2 {
 		return fmt.Errorf("expected exactly two Linux image platforms; got %v", platforms)
@@ -197,6 +200,20 @@ func verify(path string) error {
 		if a.Subject.Digest != "" && a.Subject.Digest != digest {
 			return fmt.Errorf("%s subject digest differs from image manifest", name)
 		}
+		// BuildKit attestation statement subjects can refer to the
+		// final manifest or a cryptographically named object within that
+		// manifest. The index descriptor and attestation manifest subject
+		// are *both* required to bind to the platform manifest above.
+		allowed := map[string]bool{strings.TrimPrefix(digest, "sha256:"): true}
+		img := imageManifests[name]
+		if strings.HasPrefix(img.Config.Digest, "sha256:") {
+			allowed[strings.TrimPrefix(img.Config.Digest, "sha256:")] = true
+		}
+		for _, layer := range img.Layers {
+			if strings.HasPrefix(layer.Digest, "sha256:") {
+				allowed[strings.TrimPrefix(layer.Digest, "sha256:")] = true
+			}
+		}
 		found := 0
 		for _, l := range a.Layers {
 			if l.MediaType != "application/vnd.in-toto+json" {
@@ -213,13 +230,16 @@ func verify(path string) error {
 				return fmt.Errorf("%s SPDX attestation empty or invalid", name)
 			}
 			bound := false
+			actualSubjects := []string{}
 			for _, sub := range stmt.Subject {
-				if sub.Digest["sha256"] == strings.TrimPrefix(digest, "sha256:") {
+				value := sub.Digest["sha256"]
+				actualSubjects = append(actualSubjects, value)
+				if allowed[value] && value != "" {
 					bound = true
 				}
 			}
 			if !bound {
-				return fmt.Errorf("%s SPDX statement subject mismatch", name)
+				return fmt.Errorf("%s SPDX statement subjects %v do not match the image manifest/config/layers", name, actualSubjects)
 			}
 			found++
 		}
