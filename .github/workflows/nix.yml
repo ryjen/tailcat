@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Superseded PR builds waste runner time; never cancel main-branch runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,14 +23,17 @@ jobs:
           nix_conf: |
             keep-env-derivations = true
             keep-outputs = true
-      # Cache the Nix store so the Go 1.27.2 toolchain that flake.nix
-      # builds from source is reused across runs instead of rebuilt
-      # every time. The key includes go.sum so the vendored Go module
-      # derivation is cached too; the restore prefix lets a run with a
-      # changed key still reuse the toolchain from an older cache.
+      # A primary cache key must change when Go source or build inputs
+      # change. Otherwise the restored primary-key cache is immutable and
+      # this action won't save the newly built output (confirmed in CI).
+      # Restore an earlier snapshot to reuse the Go 1.27.2 toolchain and
+      # vendored dependencies; source changes still receive a new cache.
+      # Each new snapshot consumes cache storage, so keep the 4G GC bound
+      # and rely on GitHub's LRU cache retention rather than saving every
+      # job run under a unique key.
       - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
         with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.nix', 'flake.lock', 'go.sum') }}
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.nix', 'flake.lock', 'flakehashes.json', 'go.mod', 'go.sum', 'build-tags.txt', '**/*.go') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
           gc-max-store-size-linux: 4G
       # This catches flake breakage that only Nix users would

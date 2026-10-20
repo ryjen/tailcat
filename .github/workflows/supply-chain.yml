@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Superseded PR builds waste runner time; never cancel main-branch runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
